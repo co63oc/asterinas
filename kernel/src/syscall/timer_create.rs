@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use ostd::mm::VmIo;
 
 use super::{
@@ -12,10 +14,10 @@ use crate::{
         pid_table,
         posix_thread::AsPosixThread,
         signal::{
-            c_types::{SigNotify, sigevent_t},
+            c_types::{SigNotify, sigevent_t, sigval_t},
             constants::SIGALRM,
             sig_num::SigNum,
-            signals::kernel::KernelSignal,
+            signals::timer::TimerSignal,
         },
     },
     syscall::ClockId,
@@ -41,12 +43,21 @@ pub fn sys_timer_create(
     }
 
     let current_process = current!();
-    let sent_signal: Box<dyn Fn() + Send + Sync + 'static> = {
+    let overrun = Arc::new(AtomicUsize::new(0));
+    let timer_id_cell = Arc::new(AtomicUsize::new(0));
+
+    let work_func: Box<dyn Fn() + Send + Sync + 'static> = {
         // If `sigevent_addr` is NULL, use the default method (like `sys_alarm`) to send signal.
         if sigevent_addr == 0 {
             let process = current_process.clone();
-            let signal = KernelSignal::new(SIGALRM);
+            let overrun_clone = overrun.clone();
+            let timer_id_clone = timer_id_cell.clone();
+            let sigev_value = sigval_t::from_int(0);
             Box::new(move || {
+                let overrun_count = overrun_clone.swap(0, Ordering::Relaxed);
+                let timer_id = timer_id_clone.load(Ordering::Relaxed) as i32;
+                let signal =
+                    TimerSignal::new(SIGALRM, timer_id, overrun_count as i32, sigev_value);
                 process.enqueue_signal(Box::new(signal));
             })
         // Determine the timeout action through `sigevent`.
@@ -54,14 +65,21 @@ pub fn sys_timer_create(
             let sig_event = ctx.user_space().read_val::<sigevent_t>(sigevent_addr)?;
             let sigev_notify = SigNotify::try_from(sig_event.sigev_notify)?;
             let signo = sig_event.sigev_signo;
+            let sigev_value = sig_event.sigev_value;
             match sigev_notify {
                 // Do nothing when the timer is expired.
                 SigNotify::SIGEV_NONE => Box::new(|| {}),
                 // Send a signal to the current process when the timer is expired.
                 SigNotify::SIGEV_SIGNAL => {
                     let process = current_process.clone();
-                    let signal = KernelSignal::new(SigNum::try_from(signo as u8)?);
+                    let overrun_clone = overrun.clone();
+                    let timer_id_clone = timer_id_cell.clone();
+                    let sig_num = SigNum::try_from(signo as u8)?;
                     Box::new(move || {
+                        let overrun_count = overrun_clone.swap(0, Ordering::Relaxed);
+                        let timer_id = timer_id_clone.load(Ordering::Relaxed) as i32;
+                        let signal =
+                            TimerSignal::new(sig_num, timer_id, overrun_count as i32, sigev_value);
                         process.enqueue_signal(Box::new(signal));
                     })
                 }
@@ -86,8 +104,14 @@ pub fn sys_timer_create(
                             "target thread should belong to current process"
                         );
                     }
-                    let signal = KernelSignal::new(SigNum::try_from(signo as u8)?);
+                    let sig_num = SigNum::try_from(signo as u8)?;
+                    let overrun_clone = overrun.clone();
+                    let timer_id_clone = timer_id_cell.clone();
                     Box::new(move || {
+                        let overrun_count = overrun_clone.swap(0, Ordering::Relaxed);
+                        let timer_id = timer_id_clone.load(Ordering::Relaxed) as i32;
+                        let signal =
+                            TimerSignal::new(sig_num, timer_id, overrun_count as i32, sigev_value);
                         if let Some(posix_thread) = thread.as_posix_thread() {
                             posix_thread.enqueue_signal(Box::new(signal));
                         }
@@ -97,20 +121,26 @@ pub fn sys_timer_create(
         }
     };
 
-    let work_func = sent_signal;
     let work_item = WorkItem::new(work_func);
+    let overrun_clone = overrun.clone();
     let func = move |_guard: TimerGuard| {
-        submit_work_item(
+        if !submit_work_item(
             work_item.clone(),
             crate::thread::work_queue::WorkPriority::High,
-        );
+        ) {
+            overrun_clone.fetch_add(1, Ordering::Relaxed);
+        }
     };
 
     let timer = create_timer(clockid, func, ctx)?;
 
-    let Some(timer_id) = current_process.timer_manager().add_posix_timer(timer) else {
+    let Some(timer_id) = current_process
+        .timer_manager()
+        .add_posix_timer(timer, overrun)
+    else {
         return_errno_with_message!(Errno::EAGAIN, "timer IDs are exhausted");
     };
+    timer_id_cell.store(timer_id, Ordering::Relaxed);
     ctx.user_space().write_val(timer_id_addr, &timer_id)?;
     Ok(SyscallReturn::Return(0))
 }

@@ -5,6 +5,7 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
+use core::sync::atomic::AtomicUsize;
 
 use id_alloc::IdAlloc;
 use ostd::{cpu::PrivilegeLevel, irq::InterruptLevel, sync::Mutex, timer};
@@ -101,6 +102,8 @@ pub struct PosixTimerManager {
     /// A container managing all POSIX timers created by `timer_create()` syscall
     /// within the process context.
     posix_timers: Mutex<Vec<Option<Arc<Timer>>>>,
+    /// Overrun counters for POSIX timers, indexed by timer ID.
+    posix_timer_overruns: Mutex<Vec<Option<Arc<AtomicUsize>>>>,
 }
 
 fn create_process_timer_callback(
@@ -143,6 +146,7 @@ impl PosixTimerManager {
             prof_timer,
             id_allocator: Mutex::new(IdAlloc::with_capacity(MAX_NUM_OF_POSIX_TIMERS)),
             posix_timers: Mutex::new(Vec::new()),
+            posix_timer_overruns: Mutex::new(Vec::new()),
         }
     }
 
@@ -179,16 +183,23 @@ impl PosixTimerManager {
 
     /// Adds a POSIX timer to the managed `posix_timers`, and allocate a timer ID for this timer.
     /// Return the timer ID, or `None` if allocation failed.
-    pub fn add_posix_timer(&self, posix_timer: Arc<Timer>) -> Option<usize> {
+    pub fn add_posix_timer(
+        &self,
+        posix_timer: Arc<Timer>,
+        overrun: Arc<AtomicUsize>,
+    ) -> Option<usize> {
         let mut timers = self.posix_timers.lock();
+        let mut overruns = self.posix_timer_overruns.lock();
         // Holding the lock of `posix_timers` is required to operate the `id_allocator`.
         let timer_id = self.id_allocator.lock().alloc()?;
         if timers.len() <= timer_id {
             timers.resize(timer_id + 1, None);
+            overruns.resize(timer_id + 1, None);
         }
         // The ID allocated is not used by any other timers so this index in `timers`
         // must be `None`.
         timers[timer_id] = Some(posix_timer);
+        overruns[timer_id] = Some(overrun);
         Some(timer_id)
     }
 
@@ -202,9 +213,20 @@ impl PosixTimerManager {
         timers[timer_id].clone()
     }
 
+    /// Returns the overrun counter for the POSIX timer with the given ID.
+    pub fn get_posix_timer_overrun(&self, timer_id: usize) -> Option<Arc<AtomicUsize>> {
+        let overruns = self.posix_timer_overruns.lock();
+        if timer_id >= overruns.len() {
+            return None;
+        }
+
+        overruns[timer_id].clone()
+    }
+
     /// Removes the POSIX timer with the ID `timer_id`.
     pub fn remove_posix_timer(&self, timer_id: usize) -> Option<Arc<Timer>> {
         let mut timers = self.posix_timers.lock();
+        let mut overruns = self.posix_timer_overruns.lock();
         if timer_id >= timers.len() {
             return None;
         }
@@ -213,6 +235,7 @@ impl PosixTimerManager {
         if timer.is_some() {
             // Holding the lock of `posix_timers` is required to operate the `id_allocator`.
             self.id_allocator.lock().free(timer_id);
+            overruns[timer_id] = None;
         }
         timer
     }

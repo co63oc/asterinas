@@ -159,7 +159,7 @@ macro_rules! import_generic_syscall_entries {
             sysinfo::sys_sysinfo,
             tgkill::{sys_tgkill, sys_tkill},
             timer_create::{sys_timer_create, sys_timer_delete},
-            timer_settime::{sys_timer_gettime, sys_timer_settime},
+            timer_settime::{sys_timer_getoverrun, sys_timer_gettime, sys_timer_settime},
             timerfd_create::sys_timerfd_create,
             timerfd_gettime::sys_timerfd_gettime,
             timerfd_settime::sys_timerfd_settime,
@@ -293,6 +293,7 @@ macro_rules! define_syscalls_with_generic_syscall_table {
             SYS_SETITIMER = 103              => sys_setitimer(args[..3]);
             SYS_TIMER_CREATE = 107           => sys_timer_create(args[..3]);
             SYS_TIMER_GETTIME = 108          => sys_timer_gettime(args[..2]);
+            SYS_TIMER_GETOVERRUN = 109       => sys_timer_getoverrun(args[..1]);
             SYS_TIMER_SETTIME = 110          => sys_timer_settime(args[..4]);
             SYS_TIMER_DELETE = 111           => sys_timer_delete(args[..1]);
             SYS_CLOCK_GETTIME = 113          => sys_clock_gettime(args[..2]);

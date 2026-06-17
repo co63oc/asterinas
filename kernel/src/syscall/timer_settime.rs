@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use ostd::mm::VmIo;
@@ -88,4 +89,17 @@ pub fn sys_timer_gettime(
     ctx.user_space().write_val(itimerspec_addr, &itimerspec)?;
 
     Ok(SyscallReturn::Return(0))
+}
+
+pub fn sys_timer_getoverrun(timer_id: usize, ctx: &Context) -> Result<SyscallReturn> {
+    let Some(overrun) = ctx
+        .process
+        .timer_manager()
+        .get_posix_timer_overrun(timer_id)
+    else {
+        return_errno_with_message!(Errno::EINVAL, "invalid timer ID");
+    };
+
+    let overrun_count = overrun.load(Ordering::Relaxed) as i32;
+    Ok(SyscallReturn::Return(overrun_count as _))
 }

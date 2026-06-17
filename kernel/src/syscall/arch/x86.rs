@@ -164,7 +164,7 @@ use super::{
     tgkill::{sys_tgkill, sys_tkill},
     time::sys_time,
     timer_create::{sys_timer_create, sys_timer_delete},
-    timer_settime::{sys_timer_gettime, sys_timer_settime},
+    timer_settime::{sys_timer_getoverrun, sys_timer_gettime, sys_timer_settime},
     timerfd_create::sys_timerfd_create,
     timerfd_gettime::sys_timerfd_gettime,
     timerfd_settime::sys_timerfd_settime,
@@ -351,6 +351,7 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_TIMER_CREATE = 222     => sys_timer_create(args[..3]);
     SYS_TIMER_SETTIME = 223    => sys_timer_settime(args[..4]);
     SYS_TIMER_GETTIME = 224    => sys_timer_gettime(args[..2]);
+    SYS_TIMER_GETOVERRUN = 225 => sys_timer_getoverrun(args[..1]);
     SYS_TIMER_DELETE = 226     => sys_timer_delete(args[..1]);
     SYS_CLOCK_GETTIME = 228    => sys_clock_gettime(args[..2]);
     SYS_CLOCK_NANOSLEEP = 230  => sys_clock_nanosleep(args[..4]);

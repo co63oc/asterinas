@@ -77,6 +77,15 @@ impl siginfo_t {
             .status_mut() = status;
     }
 
+    pub fn set_timer_fields(&mut self, timerid: i32, overrun: i32) {
+        let timer = siginfo_timer_t { timerid, overrun };
+        self.siginfo_fields.common_mut().first = siginfo_common_first_t::new_timer(timer);
+    }
+
+    pub fn set_value(&mut self, value: sigval_t) {
+        self.siginfo_fields.common_mut().second = siginfo_common_second_t::new_value(value);
+    }
+
     pub fn si_addr(&self) -> Vaddr {
         self.siginfo_fields.sigfault().addr
     }
@@ -149,6 +158,14 @@ pub union sigval_t {
 }
 
 impl sigval_t {
+    pub fn from_int(val: i32) -> Self {
+        Self::new_sigval_int(val)
+    }
+
+    pub fn from_ptr(val: Vaddr) -> Self {
+        Self::new_sigval_ptr(val)
+    }
+
     pub fn read_int(&self) -> i32 {
         *self.sigval_int()
     }
