@@ -83,6 +83,11 @@ pub struct Metadata {
     /// Corresponds to `st_ctime`.
     pub last_meta_change_at: Duration,
 
+    /// The timestamp of the file creation (birth time).
+    ///
+    /// Corresponds to `st_birthtime`/`stx_btime`.
+    pub birth_time: Duration,
+
     /// The type of the inode (e.g., regular file, directory, symlink).
     ///
     /// Derived from the file type bits of `st_mode` (using the `S_IFMT` mask).
@@ -148,6 +153,7 @@ impl Metadata {
             last_access_at: now,
             last_modify_at: now,
             last_meta_change_at: now,
+            birth_time: now,
             type_: InodeType::Dir,
             mode,
             nr_hard_links: 2,
@@ -173,6 +179,7 @@ impl Metadata {
             last_access_at: now,
             last_modify_at: now,
             last_meta_change_at: now,
+            birth_time: now,
             type_: InodeType::File,
             mode,
             nr_hard_links: 1,
@@ -198,6 +205,7 @@ impl Metadata {
             last_access_at: now,
             last_modify_at: now,
             last_meta_change_at: now,
+            birth_time: now,
             type_: InodeType::SymLink,
             mode,
             nr_hard_links: 1,
@@ -224,6 +232,7 @@ impl Metadata {
             last_access_at: now,
             last_modify_at: now,
             last_meta_change_at: now,
+            birth_time: now,
             type_: InodeType::from(device.type_()),
             mode,
             nr_hard_links: 1,
@@ -374,6 +383,10 @@ pub trait Inode: Any + FileOps + Send + Sync {
     fn ctime(&self) -> Duration;
 
     fn set_ctime(&self, time: Duration);
+
+    fn birth_time(&self) -> Duration;
+
+    fn set_birth_time(&self, time: Duration);
 
     fn page_cache(&self) -> Option<PageCache> {
         None

@@ -110,8 +110,10 @@ struct ExfatInodeInner {
     atime: DosTimestamp,
     /// Modification time, updated only on write.
     mtime: DosTimestamp,
-    /// Creation time.
+    /// Last change time (metadata change).
     ctime: DosTimestamp,
+    /// Birth/creation time.
+    birth_time: DosTimestamp,
 
     /// Number of sub inodes.
     num_sub_inodes: u32,
@@ -625,6 +627,7 @@ impl ExfatInodeInner {
         let now = DosTimestamp::now()?;
         self.atime = now;
         self.mtime = now;
+        self.ctime = now;
         Ok(())
     }
 }
@@ -860,7 +863,10 @@ impl ExfatInode {
 
         let inode_type = InodeType::Dir;
 
-        let ctime = DosTimestamp::now()?;
+        let birth_time = DosTimestamp::now()?;
+        let ctime = birth_time; // Root inode ctime is also birth time
+        let mtime = birth_time;
+        let atime = birth_time;
 
         let size = root_chain.num_clusters() as usize * sb.cluster_size as usize;
 
@@ -876,9 +882,10 @@ impl ExfatInode {
                 start_chain: root_chain,
                 size,
                 size_allocated: size,
-                atime: ctime,
-                mtime: ctime,
+                atime,
+                mtime,
                 ctime,
+                birth_time,
                 num_sub_inodes: 0,
                 num_sub_dirs: 0,
                 name,
@@ -933,7 +940,7 @@ impl ExfatInode {
             InodeType::File
         };
 
-        let ctime = DosTimestamp::new(
+        let birth_time = DosTimestamp::new(
             file.create_time,
             file.create_date,
             file.create_time_cs,
@@ -945,6 +952,7 @@ impl ExfatInode {
             file.modify_time_cs,
             file.modify_utc_offset,
         )?;
+        let ctime = mtime; // In exFAT, ctime (last change) is modification time
         let atime = DosTimestamp::new(
             file.access_time,
             file.access_date,
@@ -989,6 +997,7 @@ impl ExfatInode {
                 atime,
                 mtime,
                 ctime,
+                birth_time,
                 num_sub_inodes: 0,
                 num_sub_dirs: 0,
                 name,
@@ -1438,6 +1447,7 @@ impl Inode for ExfatInode {
             last_access_at: inner.atime.as_duration().unwrap_or_default(),
             last_modify_at: inner.mtime.as_duration().unwrap_or_default(),
             last_meta_change_at: inner.ctime.as_duration().unwrap_or_default(),
+            birth_time: inner.birth_time.as_duration().unwrap_or_default(),
             type_: inner.inode_type,
             mode: inner.make_mode(),
             nr_hard_links: nlinks,
@@ -1446,6 +1456,14 @@ impl Inode for ExfatInode {
             container_dev_id: inner.fs().container_device_id(),
             self_dev_id: None,
         }
+    }
+
+    fn birth_time(&self) -> Duration {
+        self.inner.read().birth_time.as_duration().unwrap_or_default()
+    }
+
+    fn set_birth_time(&self, time: Duration) {
+        self.inner.write().birth_time = DosTimestamp::from_duration(time).unwrap_or_default()
     }
 
     fn type_(&self) -> InodeType {
