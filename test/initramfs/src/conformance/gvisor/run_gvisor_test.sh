@@ -53,8 +53,15 @@ run_one_test(){
 rm -f $FAIL_CASES && touch $FAIL_CASES
 rm -rf $TEST_TMP_DIR/*
 
-for syscall_test in $(find $TEST_BIN_DIR/. -name \*_test) ; do
-    test_name=$(basename "$syscall_test")
+# If the CONFORMANCE_TEST_CASE environment variable is set, only run that specific test;
+# otherwise run all *_test binaries found in the test directory.
+if [ -n "$CONFORMANCE_TEST_CASE" ]; then
+    TEST_LIST="$CONFORMANCE_TEST_CASE"
+else
+    TEST_LIST=$(find $TEST_BIN_DIR/. -name \*_test -exec basename {} \;)
+fi
+
+for test_name in $TEST_LIST ; do
     run_one_test $test_name
     if [ $? -eq 0 ] && PASSED_TESTS=$((PASSED_TESTS+1));then
         TESTS=$((TESTS+1))
