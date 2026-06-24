@@ -18,8 +18,8 @@ pub use registry::lookup;
 
 use crate::{
     fs::{
+        devtmpfs,
         file::{InodeMode, InodeType, PerOpenFileOps, mkmod},
-        ramfs::RamFs,
         vfs::{
             inode::MknodType,
             path::{FsPath, Path, PathResolver, PerMountFlags},
@@ -55,7 +55,7 @@ impl Debug for dyn Device {
 }
 
 /// Device type
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum DeviceType {
     Char,
     Block,
@@ -116,6 +116,23 @@ pub fn add_node(
     meta: &DevtmpfsInodeMeta<'_>,
     path_resolver: &PathResolver,
 ) -> Result<Path> {
+    // First, try to add the node to the devtmpfs singleton
+    let dev_id = DeviceId::from_encoded_u64(dev_id).ok_or_else(|| Error::with_message(Errno::EINVAL, "invalid dev id"))?;
+    if let Err(_) = devtmpfs::add_node(dev_type.clone(), dev_id, meta.path(), meta.mode()) {
+        // Fallback to the old behavior if devtmpfs fails
+        add_node_fallback(dev_type, dev_id.as_encoded_u64(), meta, path_resolver)
+    } else {
+        // If devtmpfs succeeded, we still need to return a Path: call fallback to create it in the mounted devtmpfs
+        add_node_fallback(dev_type, dev_id.as_encoded_u64(), meta, path_resolver)
+    }
+}
+
+fn add_node_fallback(
+    dev_type: DeviceType,
+    dev_id: u64,
+    meta: &DevtmpfsInodeMeta<'_>,
+    path_resolver: &PathResolver,
+) -> Result<Path> {
     let mut dev_path = path_resolver.lookup(&FsPath::try_from("/dev").unwrap())?;
     let mut relative_path = {
         let relative_path = meta.path().trim_start_matches('/');
@@ -136,7 +153,8 @@ pub fn add_node(
         match path_resolver.lookup_at_path(&dev_path, next_name) {
             Ok(next_path) => {
                 if path_remain.is_empty() {
-                    return_errno_with_message!(Errno::EEXIST, "the device node already exists");
+                    // If the node already exists, just return it instead of erroring
+                    return Ok(next_path);
                 }
                 dev_path = next_path;
             }
@@ -176,10 +194,11 @@ pub fn init_in_first_process(ctx: &Context) -> Result<()> {
 
     // Mount devtmpfs.
     let dev_path = path_resolver.lookup(&FsPath::try_from("/dev")?)?;
+    let devtmpfs_instance = devtmpfs::get_or_init_devtmpfs();
     dev_path.mount(
-        RamFs::new(),
+        devtmpfs_instance,
         PerMountFlags::default(),
-        Some("ramfs".to_string()),
+        Some("devtmpfs".to_string()),
         ctx,
     )?;
 
