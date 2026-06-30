@@ -59,10 +59,6 @@ Supported functionality in SCML:
 {{#include lseek.scml}}
 ```
 
-Unsupported flags:
-* `SEEK_DATA`
-* `SEEK_HOLE`
-
 For more information,
 see [the man page](https://man7.org/linux/man-pages/man2/lseek.2.html).
 

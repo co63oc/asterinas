@@ -141,6 +141,14 @@ pub trait FileLike: Pollable + Send + Sync + Any {
         return_errno_with_message!(Errno::ESPIPE, "seek is not supported");
     }
 
+    fn seek_data(&self, offset: usize) -> Result<usize> {
+        return_errno_with_message!(Errno::ENXIO, "SEEK_DATA is not supported");
+    }
+
+    fn seek_hole(&self, offset: usize) -> Result<usize> {
+        return_errno_with_message!(Errno::ENXIO, "SEEK_HOLE is not supported");
+    }
+
     fn fallocate(&self, _mode: FallocMode, _offset: usize, _len: usize) -> Result<()> {
         return_errno_with_message!(
             Errno::ENODEV,

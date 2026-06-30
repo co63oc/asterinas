@@ -1,5 +1,5 @@
 // Set file offset
 lseek(
     fd, offset,
-    whence = SEEK_SET | SEEK_CUR | SEEK_END
+    whence = SEEK_SET | SEEK_CUR | SEEK_END | SEEK_DATA | SEEK_HOLE
 );

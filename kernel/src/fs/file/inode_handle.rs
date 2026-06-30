@@ -425,6 +425,40 @@ impl FileLike for InodeHandle {
         do_seek_util(&self.offset, pos, inode.seek_end())
     }
 
+    fn seek_data(&self, offset: usize) -> Result<usize> {
+        if self.rights.is_empty() {
+            return_errno_with_message!(Errno::EBADF, "the file is opened as a path");
+        }
+
+        let inode = self.path.inode();
+        if !inode.type_().is_seekable() {
+            return_errno_with_message!(Errno::ESPIPE, "seek is not supported");
+        }
+
+        let file_size = inode.size();
+        if offset >= file_size {
+            return Err(Error::with_message(
+                Errno::ENXIO,
+                "no data region found after the offset",
+            ));
+        }
+        Ok(offset)
+    }
+
+    fn seek_hole(&self, offset: usize) -> Result<usize> {
+        if self.rights.is_empty() {
+            return_errno_with_message!(Errno::EBADF, "the file is opened as a path");
+        }
+
+        let inode = self.path.inode();
+        if !inode.type_().is_seekable() {
+            return_errno_with_message!(Errno::ESPIPE, "seek is not supported");
+        }
+
+        let file_size = inode.size();
+        Ok(file_size)
+    }
+
     fn fallocate(&self, mode: FallocMode, offset: usize, len: usize) -> Result<()> {
         if !self.rights.contains(Rights::WRITE) {
             return_errno_with_message!(Errno::EBADF, "the file is not opened writable");
@@ -522,6 +556,8 @@ pub enum SeekFrom {
     Start(usize),
     End(isize),
     Current(isize),
+    Data(usize),
+    Hole(usize),
 }
 
 /// File operations for one opened file description.
@@ -559,6 +595,22 @@ pub trait PerOpenFileOps: Pollable + FileOps + Any + Send + Sync + 'static {
     /// cleanly unified under [`FileOps`].
     fn seek_end(&self) -> Result<Option<usize>> {
         Ok(None)
+    }
+
+    /// Seeks to the next data region starting from the given offset.
+    ///
+    /// Returns the offset of the next data region, or the file size if no
+    /// data region exists after the given offset.
+    fn seek_data(&self, offset: usize) -> Result<usize> {
+        return_errno_with_message!(Errno::ENXIO, "SEEK_DATA is not supported");
+    }
+
+    /// Seeks to the next hole region starting from the given offset.
+    ///
+    /// Returns the offset of the next hole region, or the file size if no
+    /// hole region exists after the given offset.
+    fn seek_hole(&self, offset: usize) -> Result<usize> {
+        return_errno_with_message!(Errno::ENXIO, "SEEK_HOLE is not supported");
     }
 
     // See `FileLike::mappable`.
